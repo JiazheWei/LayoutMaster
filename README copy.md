@@ -35,7 +35,7 @@ pip install torch torchvision
 pip install transformers
 pip install PIL
 pip install tqdm
-pip install wandb  # 可选，用于实验记录
+pip install swanlab  # 可选，用于实验记录
 pip install numpy
 ```
 

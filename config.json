@@ -1,7 +1,7 @@
 {
   "project_name": "layout-diffusion-trajectory",
   "run_name": "layout_diffusion_v1",
-  "use_wandb": false,
+  "use_swanlab": false,
   "seed": 42,
   
   "device": "cuda",

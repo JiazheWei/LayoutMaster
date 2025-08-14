@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 import logging
 from tqdm import tqdm
-import wandb
+import swanlab
 from typing import Dict, Optional
 import numpy as np
 import random
@@ -194,11 +194,11 @@ class LayoutTrainer:
     
     def _init_logging(self):
         """初始化日志记录"""
-        if self.config.get('use_wandb', False):
-            wandb.init(
+        if self.config.get('use_swanlab', False):
+            swanlab.init(
                 project=self.config.get('project_name', 'layout-diffusion'),
                 config=self.config,
-                name=self.config.get('run_name')
+                experiment_name=self.config.get('run_name')
             )
     
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -466,9 +466,9 @@ class LayoutTrainer:
                     'step': self.global_step
                 })
                 
-                # 记录到wandb
-                if self.config.get('use_wandb', False) and batch_idx % 10 == 0:
-                    wandb.log(loss_dict, step=self.global_step)
+                # 记录到swanlab
+                if self.config.get('use_swanlab', False) and batch_idx % 10 == 0:
+                    swanlab.log(loss_dict, step=self.global_step)
             
             # 计算epoch平均损失
             avg_epoch_losses = {key: value / num_batches for key, value in epoch_losses.items()}
@@ -494,10 +494,10 @@ class LayoutTrainer:
             if (epoch + 1) % self.config.get('training', {}).get('save_every', 10) == 0:
                 self.save_checkpoint(save_dir / f'checkpoint_epoch_{epoch+1}.pth')
             
-            # wandb记录
-            if self.config.get('use_wandb', False):
+            # swanlab记录
+            if self.config.get('use_swanlab', False):
                 log_dict = {**avg_epoch_losses, **val_losses, 'epoch': epoch}
-                wandb.log(log_dict, step=self.global_step)
+                swanlab.log(log_dict, step=self.global_step)
         
         logger.info("训练完成！")
 
