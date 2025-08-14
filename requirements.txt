@@ -1,0 +1,49 @@
+# LayoutMaster 项目依赖
+
+# 深度学习框架
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Transformer和多模态模型
+transformers>=4.30.0
+
+# 图像处理
+Pillow>=9.5.0
+
+# 科学计算
+numpy>=1.24.0
+
+# 进度条
+tqdm>=4.65.0
+
+# 实验记录（可选）
+wandb>=0.15.0
+
+# 数据处理
+datasets>=2.12.0
+
+# 工具包
+pathlib
+json
+argparse
+logging
+random
+math
+typing
+
+# CLIP相关
+clip-by-openai>=1.0  # 如果使用OpenAI CLIP
+sentence-transformers>=2.2.0  # 备选的文本编码器
+
+# 可选：用于模型优化
+accelerate>=0.20.0  # Hugging Face加速库
+deepspeed>=0.9.0  # 分布式训练（可选）
+
+# 开发和调试
+matplotlib>=3.7.0  # 可视化
+seaborn>=0.12.0  # 统计可视化
+jupyter>=1.0.0  # Jupyter notebook支持
+
+# 单元测试
+pytest>=7.3.0
+pytest-cov>=4.1.0

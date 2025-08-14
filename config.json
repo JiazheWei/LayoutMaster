@@ -1,0 +1,62 @@
+{
+  "project_name": "layout-diffusion-trajectory",
+  "run_name": "layout_diffusion_v1",
+  "use_wandb": false,
+  "seed": 42,
+  
+  "device": "cuda",
+  "canvas_size": [1024, 1024],
+  "max_elements": 25,
+  
+  "model": {
+    "visual_backbone": "clip",
+    "visual_dim": 768,
+    "hidden_dim": 512,
+    "num_layers": 12,
+    "max_elements": 25
+  },
+  
+  "diffusion": {
+    "num_timesteps": 1000,
+    "beta_start": 0.0001,
+    "beta_end": 0.02,
+    "schedule_type": "linear",
+    "trajectory_steps": 50
+  },
+  
+  "data": {
+    "train_file": "psd_dataset_92000_fast.jsonl",
+    "val_file": null,
+    "image_root": "/path/to/images",
+    "batch_size": 4,
+    "num_workers": 4,
+    "augment": true
+  },
+  
+  "optimizer": {
+    "lr": 1e-4,
+    "weight_decay": 0.01,
+    "betas": [0.9, 0.999],
+    "freeze_visual": true,
+    "min_lr": 1e-6
+  },
+  
+  "loss": {
+    "position_weight": 1.0,
+    "layer_weight": 0.5,
+    "confidence_weight": 0.3,
+    "aesthetic_weight": 0.2,
+    "overlap_weight": 0.8,
+    "alignment_weight": 0.4,
+    "canvas_size": [1024, 1024]
+  },
+  
+  "training": {
+    "num_epochs": 100,
+    "save_dir": "./checkpoints",
+    "save_every": 10,
+    "max_grad_norm": 1.0
+  },
+  
+  "backbone_path": "/path/to/clip/model"
+}
