@@ -86,8 +86,10 @@ class DiffusionScheduler:
     def _extract(self, a: torch.Tensor, t: torch.Tensor, x_shape: torch.Size) -> torch.Tensor:
         """从时间序列中提取对应时间步的值"""
         batch_size = t.shape[0]
-        out = a.gather(-1, t.cpu())
+        # 保证 t 和 a 在同一设备
+        out = a.gather(-1, t.to(a.device))
         return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
+
     
     def predict_start_from_noise(
         self, 

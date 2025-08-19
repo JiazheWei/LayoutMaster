@@ -1,0 +1,15 @@
+#########backbone_name######### Qwen-VL-2.5-3B-Instruct
+Traceback (most recent call last):
+  File "/home/LayoutMaster/train.py", line 1099, in <module>
+    main()
+  File "/home/LayoutMaster/train.py", line 1043, in main
+    trainer = LayoutTrainer(config)
+  File "/home/LayoutMaster/train.py", line 252, in __init__
+    self._init_models()
+  File "/home/LayoutMaster/train.py", line 281, in _init_models
+    self.layout_model, self.visual_extractor = create_layout_model(
+  File "/home/LayoutMaster/models.py", line 396, in create_layout_model
+    visual_extractor = VisualFeatureExtractor(
+  File "/home/LayoutMaster/models.py", line 316, in __init__
+    raise ValueError("qwen_config is required for Qwen backbone")
+ValueError: qwen_config is required for Qwen backbone

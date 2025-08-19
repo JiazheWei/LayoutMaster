@@ -290,25 +290,29 @@ class LayoutTrainer:
         self.layout_model = self.layout_model.to(self.device)
         self.visual_extractor = self.visual_extractor.to(self.device)
         
-        # 多GPU支持
+            
         if torch.cuda.device_count() > 1 and self.config.get('use_multi_gpu', True):
             logger.info(f"使用 {torch.cuda.device_count()} 个GPU进行训练")
             self.layout_model = torch.nn.DataParallel(self.layout_model)
             self.visual_extractor = torch.nn.DataParallel(self.visual_extractor)
             self.is_multi_gpu = True
         else:
+            print("#########use single gpu##########")
             self.is_multi_gpu = False
             logger.info(f"使用单GPU训练: {self.device}")
         
-        # 加载预训练的CLIP模型（需要用户提供路径）
+        # 在DataParallel包装之后加载预训练的backbone
         self._load_visual_backbone()
-        
+        print("#########load visual backbone okk ##########")
+
         # 计算参数数量
         layout_params = sum(p.numel() for p in self.layout_model.parameters())
         visual_params = sum(p.numel() for p in self.visual_extractor.parameters())
         logger.info(f"布局模型参数数量: {layout_params:,}")
         logger.info(f"视觉模型参数数量: {visual_params:,}")
         logger.info(f"总参数数量: {layout_params + visual_params:,}")
+        print("#########init models okk ##########")
+
     
     def _load_visual_backbone(self):
         """加载视觉backbone"""
@@ -523,7 +527,6 @@ class LayoutTrainer:
         for key, value in batch.items():
             if isinstance(value, torch.Tensor):
                 batch[key] = value.to(self.device)
-        
         # 提取数据
         images = batch['images']                # [B, N, 3, H, W]
         start_layouts = batch['start_layouts'] # [B, N, 6]
@@ -534,7 +537,6 @@ class LayoutTrainer:
         
         # 提取视觉特征
         visual_features = self.visual_extractor(images)  # [B, N, visual_dim]
-        
         # 标准化布局
         normalized_start = self.normalizer.normalize_layout(start_layouts)
         normalized_target = self.normalizer.normalize_layout(target_layouts)
@@ -555,7 +557,6 @@ class LayoutTrainer:
             timestep=timesteps,
             element_mask=element_masks
         )
-        
         # 预测原始布局
         predicted_layout = self.scheduler.predict_start_from_noise(
             noisy_layout, timesteps, predicted_noise
@@ -1026,9 +1027,9 @@ def main():
     parser = argparse.ArgumentParser(description='Layout Diffusion Training and Inference')
     parser.add_argument('--config', type=str, required=True, help='配置文件路径')
     parser.add_argument('--resume', type=str, help='恢复训练的检查点路径')
-    parser.add_argument('--mode', type=str, choices=['train', 'predict'], default='train', 
+    parser.add_argument('--mode', type=str, choices=['train', 'predict'], default='predict', 
                        help='运行模式：train（训练）或predict（预测）')
-    parser.add_argument('--checkpoint', type=str, help='预测时使用的检查点路径')
+    parser.add_argument('--checkpoint', type=str, default='/home/LayoutMaster/checkpoints/best_model.pth', help='预测时使用的检查点路径')
     parser.add_argument('--num_samples', type=int, default=10, help='预测时要处理的样本数量')
     parser.add_argument('--output_dir', type=str, help='预测结果输出目录')
     parser.add_argument('--poster_dir', type=str, help='单个海报目录路径（用于单个预测）')

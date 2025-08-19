@@ -1,0 +1,5 @@
+usage: train.py [-h] --config CONFIG [--resume RESUME]
+                [--mode {train,predict}] [--checkpoint CHECKPOINT]
+                [--num_samples NUM_SAMPLES] [--output_dir OUTPUT_DIR]
+                [--poster_dir POSTER_DIR]
+train.py: error: argument --mode: invalid choice: 'test' (choose from 'train', 'predict')

@@ -11,6 +11,8 @@ import numpy as np
 from PIL import Image
 import torchvision.transforms as transforms
 from typing import List, Dict, Optional
+import os
+import glob
 
 from models import create_layout_model
 from diffusion_utils import DiffusionScheduler, LayoutNormalizer
@@ -22,12 +24,15 @@ class LayoutInference:
     布局推理器
     """
     
-    def __init__(self, model_path: str, config_path: str):
+    def __init__(self, model_path: str, config_path: str, backbone_path: Optional[str] = None):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # 加载配置
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
+        
+        # 保存backbone路径
+        self.backbone_path = backbone_path
         
         # 初始化模型
         self._init_models()
@@ -53,10 +58,10 @@ class LayoutInference:
         model_config = self.config['model']
         
         self.layout_model, self.visual_extractor = create_layout_model(
-            visual_backbone=model_config.get('visual_backbone', 'clip'),
-            visual_dim=model_config.get('visual_dim', 768),
-            hidden_dim=model_config.get('hidden_dim', 512),
-            num_layers=model_config.get('num_layers', 12),
+            visual_backbone=model_config.get('visual_backbone', 'Qwen-VL-2.5-3B-Instruct'),
+            visual_dim=model_config.get('visual_dim', 1280),
+            hidden_dim=model_config.get('hidden_dim', 2048),
+            num_layers=model_config.get('num_layers', 32),
             max_elements=model_config.get('max_elements', 25)
         )
         
@@ -66,6 +71,98 @@ class LayoutInference:
         # 设置为评估模式
         self.layout_model.eval()
         self.visual_extractor.eval()
+        
+        # 加载视觉backbone
+        self._load_visual_backbone()
+        
+        print("模型初始化完成")
+    
+    def _load_visual_backbone(self):
+        """加载视觉backbone"""
+        backbone_path = self.backbone_path or self.config.get('backbone_path')
+        
+        if backbone_path and os.path.exists(backbone_path):
+            try:
+                print(f"正在加载视觉backbone: {backbone_path}")
+                
+                # 根据backbone类型加载
+                if 'clip' in backbone_path.lower():
+                    # 加载CLIP模型
+                    import clip
+                    model, preprocess = clip.load("ViT-B/32", device=self.device)
+                    self.visual_extractor.set_backbone(model)
+                    print("CLIP视觉backbone加载成功")
+                    
+                elif 'qwen' in backbone_path.lower():
+                    # 加载Qwen-VL模型
+                    from transformers import AutoProcessor, AutoModelForVision2Seq
+                    
+                    processor = AutoProcessor.from_pretrained(backbone_path)
+                    model = AutoModelForVision2Seq.from_pretrained(backbone_path)
+                    model = model.to(self.device)
+                    
+                    # 设置到视觉特征提取器
+                    self.visual_extractor.set_backbone(model)
+                    self.visual_extractor.set_processor(processor)
+                    print("Qwen-VL视觉backbone加载成功")
+                    
+                    
+            except Exception as e:
+                print(f"加载视觉backbone失败: {e}")
+                print("将使用简单的CNN backbone作为替代")
+                self._create_simple_backbone()
+        else:
+            print("未提供backbone路径，创建简单的视觉特征提取器")
+            self._create_simple_backbone()
+    
+    def _create_simple_backbone(self):
+        """创建简单的视觉backbone作为替代"""
+        import torch.nn as nn
+        
+        class SimpleCNN(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.features = nn.Sequential(
+                    # 224x224 -> 112x112
+                    nn.Conv2d(3, 64, 7, stride=2, padding=3),
+                    nn.BatchNorm2d(64),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(3, stride=2, padding=1),
+                    
+                    # 56x56
+                    nn.Conv2d(64, 128, 3, padding=1),
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(2, stride=2),
+                    
+                    # 28x28
+                    nn.Conv2d(128, 256, 3, padding=1),
+                    nn.BatchNorm2d(256),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(2, stride=2),
+                    
+                    # 14x14
+                    nn.Conv2d(256, 512, 3, padding=1),
+                    nn.BatchNorm2d(512),
+                    nn.ReLU(inplace=True),
+                    nn.AdaptiveAvgPool2d((1, 1))
+                )
+                
+            def encode_image(self, x):
+                """模仿CLIP的encode_image接口"""
+                features = self.features(x)
+                return features.flatten(1)  # [B, 512]
+        
+        simple_backbone = SimpleCNN().to(self.device)
+        
+        # 设置backbone到视觉特征提取器
+        if hasattr(self.visual_extractor, 'set_backbone'):
+            self.visual_extractor.set_backbone(simple_backbone)
+        else:
+            # 如果视觉特征提取器没有set_backbone方法，直接替换
+            self.visual_extractor.backbone = simple_backbone
+        
+        print("已创建并设置简单的视觉backbone")
     
     def _init_diffusion(self):
         """初始化扩散组件"""
@@ -100,7 +197,7 @@ class LayoutInference:
         else:
             self.layout_model.load_state_dict(checkpoint)
         
-        print(f"模型已加载: {model_path}")
+        print(f"DiT模型已加载: {model_path}")
     
     def load_images(self, image_paths: List[str]) -> torch.Tensor:
         """
@@ -324,41 +421,117 @@ class LayoutInference:
         print("迭代优化完成！")
         return layout_json
 
+    def process_data_action_head_folder(self, data_folder: str, output_suffix: str = "_predicted"):
+        """
+        批量处理data-action_head文件夹下的所有海报设计
+        
+        Args:
+            data_folder: data-action_head文件夹路径
+            output_suffix: 输出文件名后缀
+        """
+        data_path = Path(data_folder)
+        if not data_path.exists():
+            print(f"数据文件夹不存在: {data_folder}")
+            return
+        
+        # 获取所有海报文件夹
+        poster_folders = [f for f in data_path.iterdir() if f.is_dir()]
+        print(f"找到 {len(poster_folders)} 个海报文件夹")
+        
+        for i, poster_folder in enumerate(poster_folders):
+            print(f"\n处理第 {i+1}/{len(poster_folders)} 个文件夹: {poster_folder.name}")
+            
+            try:
+                # 查找parse文件夹中的PNG图片
+                parse_folder = poster_folder / "parse"
+                if not parse_folder.exists():
+                    print(f"  跳过: 未找到parse文件夹")
+                    continue
+                
+                # 获取所有PNG图片
+                png_files = list(parse_folder.glob("*.png"))
+                if not png_files:
+                    print(f"  跳过: 未找到PNG图片")
+                    continue
+                
+                # 按文件名排序（按层序）
+                png_files.sort(key=lambda x: x.name)
+                image_paths = [str(f) for f in png_files]
+                
+                print(f"  找到 {len(image_paths)} 个视觉元素")
+                
+                # 生成布局
+                layout_json = self.generate_layout(
+                    image_paths=image_paths,
+                    num_inference_steps=50
+                )
+                
+                # 保存预测结果
+                output_file = poster_folder / f"predicted_layout{output_suffix}.json"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(layout_json, f, indent=2, ensure_ascii=False)
+                
+                print(f"  预测结果已保存到: {output_file}")
+                
+            except Exception as e:
+                print(f"  处理失败: {e}")
+                continue
+        
+        print(f"\n批量处理完成！")
+
 
 def main():
     parser = argparse.ArgumentParser(description='Layout Generation Inference')
-    parser.add_argument('--model', type=str, required=True, help='训练好的模型路径')
-    parser.add_argument('--config', type=str, required=True, help='配置文件路径')
-    parser.add_argument('--images', type=str, nargs='+', required=True, help='输入图片路径列表')
-    parser.add_argument('--output', type=str, default='generated_layout.json', help='输出JSON文件路径')
+    parser.add_argument('--model', type=str, required=True, default='/home/LayoutMaster/checkpoints/best_model.pth', help='训练好的DiT模型路径')
+    parser.add_argument('--config', type=str, required=True, default='/home/LayoutMaster/config_data_action_head.json', help='配置文件路径')
+    parser.add_argument('--backbone', type=str, help='视觉编码器权重路径（可选，如果不提供将使用简单CNN）')
+    parser.add_argument('--images', type=str, nargs='+', help='输入图片路径列表（单次推理时使用）')
+    parser.add_argument('--output', type=str, default='generated_layout.json', help='输出JSON文件路径（单次推理时使用）')
     parser.add_argument('--steps', type=int, default=50, help='推理步数')
     parser.add_argument('--iterative', action='store_true', help='是否使用迭代优化')
     parser.add_argument('--iterations', type=int, default=3, help='迭代次数')
     
+    # 新增批量处理参数
+    parser.add_argument('--batch_process', action='store_true', help='批量处理data-action_head文件夹')
+    parser.add_argument('--data_folder', type=str, default='data-action_head', help='数据文件夹路径')
+    parser.add_argument('--output_suffix', type=str, default='_predicted', help='输出文件名后缀')
+    
     args = parser.parse_args()
     
     # 创建推理器
-    inference = LayoutInference(args.model, args.config)
+    inference = LayoutInference(args.model, args.config, args.backbone)
     
-    # 生成布局
-    if args.iterative:
-        layout_json = inference.optimize_layout_iteratively(
-            image_paths=args.images,
-            num_iterations=args.iterations
+    # 批量处理模式
+    if args.batch_process:
+        inference.process_data_action_head_folder(
+            data_folder=args.data_folder,
+            output_suffix=args.output_suffix
         )
     else:
-        layout_json = inference.generate_layout(
-            image_paths=args.images,
-            num_inference_steps=args.steps
-        )
-    
-    # 保存结果
-    with open(args.output, 'w', encoding='utf-8') as f:
-        json.dump(layout_json, f, indent=2, ensure_ascii=False)
-    
-    print(f"布局已保存到: {args.output}")
-    print("\n生成的布局:")
-    print(json.dumps(layout_json, indent=2, ensure_ascii=False))
+        # 单次推理模式
+        if not args.images:
+            print("错误: 单次推理模式需要提供 --images 参数")
+            return
+        
+        # 生成布局
+        if args.iterative:
+            layout_json = inference.optimize_layout_iteratively(
+                image_paths=args.images,
+                num_iterations=args.iterations
+            )
+        else:
+            layout_json = inference.generate_layout(
+                image_paths=args.images,
+                num_inference_steps=args.steps
+            )
+        
+        # 保存结果
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(layout_json, f, indent=2, ensure_ascii=False)
+        
+        print(f"布局已保存到: {args.output}")
+        print("\n生成的布局:")
+        print(json.dumps(layout_json, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

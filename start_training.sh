@@ -17,9 +17,9 @@ export OMP_NUM_THREADS=8
 export TORCH_CUDNN_V8_API_ENABLED=1
 
 # 显示GPU状态
-echo "🔍 当前GPU状态:"
-nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader
+echo "🔍 当前GPU状态:"-format=csv,noheader
 
+nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total -
 echo ""
 echo "⚙️ 训练配置:"
 echo "- 使用GPU: 8x NVIDIA H20"
@@ -44,7 +44,7 @@ mkdir -p logs
 echo "🎯 开始训练，日志保存到 logs/training_$(date +%Y%m%d_%H%M%S).log"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-python train.py --config config_data_action_head.json --mode train 2>&1 | tee logs/training_$(date +%Y%m%d_%H%M%S).log
+python train.py --config config_data_action_head.json --mode predict 2>&1 | tee logs/training_$(date +%Y%m%d_%H%M%S).log
 
 echo ""
 echo "✅ 训练完成！"

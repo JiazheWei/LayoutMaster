@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import math
 from typing import List, Dict, Tuple, Optional
 import numpy as np
-
+import json
 
 class SinusoidalPositionEmbedding(nn.Module):
     """正弦位置编码，用于时间步嵌入"""
@@ -239,34 +239,91 @@ class ActionHead(nn.Module):
         return actions
 
 
+class QwenVisionEncoder(nn.Module):
+    """Qwen2.5-VL视觉编码器"""
+    
+    def __init__(self, vision_config):
+        super().__init__()
+        # 简化的视觉编码器，保持与Qwen2.5-VL兼容的架构
+        self.patch_embed = nn.Conv2d(
+            in_channels=vision_config['in_chans'],
+            out_channels=vision_config['hidden_size'],
+            kernel_size=vision_config['patch_size'],
+            stride=vision_config['patch_size']
+        )
+        
+        # 多层transformer块（简化版）
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=vision_config['hidden_size'],
+            nhead=vision_config['num_heads'],
+            dim_feedforward=vision_config['intermediate_size'],
+            dropout=0.1,
+            activation='gelu',
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=4)  # 简化为4层
+        
+        self.norm = nn.LayerNorm(vision_config['hidden_size'])
+        self.output_projection = nn.Linear(
+            vision_config['hidden_size'], 
+            vision_config['out_hidden_size']
+        )
+        
+    def forward(self, pixel_values):
+        B, C, H, W = pixel_values.shape
+        
+        # Patch embedding
+        x = self.patch_embed(pixel_values)  # [B, hidden_size, H', W']
+        x = x.flatten(2).transpose(1, 2)     # [B, num_patches, hidden_size]
+        
+        # Transformer encoding
+        x = self.transformer(x)
+        x = self.norm(x)
+        x = self.output_projection(x)
+        
+        return x
+
+
 class VisualFeatureExtractor(nn.Module):
     """
     视觉特征提取器
-    可以基于预训练的CLIP或其他视觉模型
+    支持CLIP和Qwen2.5-VL视觉编码器
     """
     
     def __init__(
         self,
-        backbone_name: str = "clip",
+        backbone_name: str = "Qwen-VL-2.5-3B-Instruct",
         feature_dim: int = 768,
-        freeze_backbone: bool = True
+        freeze_backbone: bool = True,
+        qwen_config: Optional[Dict] = None
     ):
         super().__init__()
-        
+
         self.backbone_name = backbone_name
         self.feature_dim = feature_dim
-        
+        self.freeze_backbone = freeze_backbone
         if backbone_name == "clip":
             # 使用CLIP作为backbone，后续会通过外部加载
             self.backbone = None  # 将通过外部设置
             self.projection = nn.Linear(512, feature_dim)  # CLIP默认512维
+            self.pooling_method = "global_avg"  # CLIP输出单个特征向量
+        
+
+        elif backbone_name == "Qwen-VL-2.5-3B-Instruct":
+            # 使用Qwen2.5-VL视觉编码器
+            if qwen_config is None:
+                raise ValueError("qwen_config is required for Qwen backbone")
+            self.backbone = QwenVisionEncoder(qwen_config['vision_config'])
+            qwen_output_dim = qwen_config['vision_config']['out_hidden_size']  # 2048
+            self.projection = nn.Linear(qwen_output_dim, feature_dim)
+            self.pooling_method = "sequence_avg"  # Qwen输出序列特征，需要池化
+            
         else:
             raise NotImplementedError(f"Backbone {backbone_name} not implemented")
-        
-        self.freeze_backbone = freeze_backbone
     
     def set_backbone(self, backbone):
         """设置预训练的backbone模型"""
+        
         self.backbone = backbone
         if self.freeze_backbone:
             for param in self.backbone.parameters():
@@ -291,12 +348,27 @@ class VisualFeatureExtractor(nn.Module):
         # 提取特征
         with torch.set_grad_enabled(not self.freeze_backbone):
             if self.backbone_name == "clip":
-                features = self.backbone.encode_image(images_flat)
+                features = self.backbone.encode_image(images_flat)  # [B*N, 512]
+                # 投影到目标维度
+                features = self.projection(features)  # [B*N, feature_dim]
+                
+            elif self.backbone_name == "Qwen-VL-2.5-3B-Instruct":
+                raw_features = self.backbone(images_flat)  # [B*N, num_patches, 2048]
+                
+                # 序列池化：取平均值
+                if self.pooling_method == "sequence_avg":
+                    features = raw_features.mean(dim=1)  # [B*N, 2048]
+                elif self.pooling_method == "cls_token":
+                    features = raw_features[:, 0]  # [B*N, 2048] 使用第一个token
+                else:
+                    features = raw_features.mean(dim=1)  # 默认平均池化
+                
+                # 投影到目标维度
+                features = self.projection(features)  # [B*N, feature_dim]
+            
             else:
                 features = self.backbone(images_flat)
-        
-        # 投影到目标维度
-        features = self.projection(features)
+                features = self.projection(features)
         
         # 重塑回 [B, N, feature_dim]
         features = features.view(B, N, self.feature_dim)
@@ -305,7 +377,7 @@ class VisualFeatureExtractor(nn.Module):
 
 
 def create_layout_model(
-    visual_backbone: str = "clip",
+    visual_backbone: str = "Qwen-VL-2.5-3B-Instruct",
     visual_dim: int = 768,
     hidden_dim: int = 512,
     num_layers: int = 12,
@@ -318,14 +390,15 @@ def create_layout_model(
         layout_model: 布局扩散模型
         visual_extractor: 视觉特征提取器
     """
-    
+    with open("/home/Qwen2.5-VL-3B-Instruct/config.json", "r") as f:
+        qwen_config = json.load(f)
     # 创建视觉特征提取器
     visual_extractor = VisualFeatureExtractor(
         backbone_name=visual_backbone,
         feature_dim=visual_dim,
-        freeze_backbone=True
+        freeze_backbone=True,
+        qwen_config=qwen_config
     )
-    
     # 创建布局模型
     layout_model = LayoutDiffusionTransformer(
         visual_dim=visual_dim,

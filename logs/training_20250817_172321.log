@@ -1,0 +1,19 @@
+INFO:__main__:使用 8 个GPU进行训练
+INFO:__main__:需要加载视觉backbone: /home/Qwen2.5-VL-3B-Instruct
+INFO:__main__:请确保提供正确的CLIP或其他视觉模型路径
+INFO:__main__:布局模型参数数量: 2,190,237,702
+INFO:__main__:视觉模型参数数量: 67,297,648
+INFO:__main__:总参数数量: 2,257,535,350
+INFO:__main__:train 数据集包含 800 个样本
+INFO:__main__:val 数据集包含 200 个样本
+INFO:__main__:训练器初始化完成，使用设备: cuda
+INFO:__main__:开始预测模式
+INFO:__main__:检查点已加载: /home/LayoutMaster/checkpoints/best_model.pth
+INFO:__main__:批量预测模式，样本数量: 10
+INFO:__main__:开始预测并保存结果，样本数量: 10
+INFO:__main__:val 数据集包含 200 个样本
+INFO:__main__:已预测并保存 5 个样本
+INFO:__main__:已预测并保存 10 个样本
+INFO:__main__:预测完成，共保存了 10 个结果
+#########load visual backbone okk ##########
+#########init models okk ##########
